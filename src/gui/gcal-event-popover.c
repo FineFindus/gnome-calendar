@@ -18,6 +18,10 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+#include "gcal-event.h"
+#include "glib-object.h"
+#include "glib.h"
+#include <stdio.h>
 #define G_LOG_DOMAIN "GcalEventPopover"
 
 #include "gcal-debug.h"
@@ -538,6 +542,67 @@ on_action_button_clicked_cb (GtkButton        *action_button,
 }
 
 static void
+file_dialog_save_cb (GObject *object, GAsyncResult *res, gpointer user_data)
+{
+  g_autoptr(GcalEventPopover) self = user_data;
+  g_autoptr(ECalComponent) component = NULL;
+  g_autoptr(GFile) file = NULL;
+  g_autoptr(GtkFileDialog) file_dialog = GTK_FILE_DIALOG (object);
+  g_autoptr(GString) contents = NULL;
+
+  file = gtk_file_dialog_save_finish (file_dialog, res, NULL);
+  if (!file)
+    {
+    return;
+    }
+
+  contents = g_string_new ("BEGIN:VCALENDAR\nVERSION:2.0\n");
+  component = gcal_event_get_component (self->event);
+  g_string_append (contents, e_cal_component_get_as_string (component));
+  g_string_append (contents, "END:VCALENDAR");
+
+  g_file_replace_contents (file,
+                           contents->str,
+                           contents->len,
+                           NULL,
+                           FALSE,
+                           G_FILE_CREATE_REPLACE_DESTINATION,
+                           NULL,
+                           NULL,
+                           NULL);
+}
+
+
+static void
+on_ics_export_button_clicked_cb (GtkButton        *button,
+                                 GcalEventPopover *self)
+{
+  GtkFileDialog *file_dialog = NULL;
+  GtkWindow *window = NULL;
+  gchar *filename = NULL;
+
+  window = GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (self)));
+  file_dialog = gtk_file_dialog_new ();
+  filename = g_strconcat (gcal_event_get_summary (self->event), ".ics", NULL);
+
+  gtk_file_dialog_set_title (file_dialog,
+                             _("Export Event"));
+  gtk_file_dialog_set_initial_name(file_dialog,
+                                   filename);
+
+  // we need to close the popover before showing the dialog, as otherwise the popover will continue to capture the first
+  // click (i.e. first click will appear unresponsive as it closes the popover)
+  g_object_ref (self);
+  gtk_popover_popdown (GTK_POPOVER (self));
+
+  gtk_file_dialog_save (file_dialog,
+                        window,
+                        NULL,
+                        file_dialog_save_cb,
+                        self);
+}
+
+static void
 on_uri_launched_cb (GObject      *source_object,
                     GAsyncResult *result,
                     gpointer      user_data)
@@ -732,6 +797,7 @@ gcal_event_popover_class_init (GcalEventPopoverClass *klass)
   gtk_widget_class_bind_template_child (widget_class, GcalEventPopover, read_only_icon);
 
   gtk_widget_class_bind_template_callback (widget_class, on_action_button_clicked_cb);
+  gtk_widget_class_bind_template_callback (widget_class, on_ics_export_button_clicked_cb);
 }
 
 static void
