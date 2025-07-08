@@ -542,7 +542,7 @@ on_action_button_clicked_cb (GtkButton        *action_button,
 }
 
 static void
-file_dialog_save_cb (GObject *object, GAsyncResult *res, gpointer user_data)
+on_file_dialog_save_cb (GObject *object, GAsyncResult *res, gpointer user_data)
 {
   g_autoptr(GcalEventPopover) self = user_data;
   g_autoptr(ECalComponent) component = NULL;
@@ -598,7 +598,7 @@ on_ics_export_button_clicked_cb (GtkButton        *button,
   gtk_file_dialog_save (file_dialog,
                         window,
                         NULL,
-                        file_dialog_save_cb,
+                        on_file_dialog_save_cb,
                         self);
 }
 
