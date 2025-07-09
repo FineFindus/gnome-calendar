@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+#include "gcal-calendar.h"
 #include "gcal-event.h"
 #include "glib-object.h"
 #include "glib.h"
@@ -544,11 +545,14 @@ on_action_button_clicked_cb (GtkButton        *action_button,
 static void
 on_file_dialog_save_cb (GObject *object, GAsyncResult *res, gpointer user_data)
 {
-  g_autoptr(GcalEventPopover) self = user_data;
-  g_autoptr(ECalComponent) component = NULL;
-  g_autoptr(GFile) file = NULL;
-  g_autoptr(GtkFileDialog) file_dialog = GTK_FILE_DIALOG (object);
-  g_autoptr(GString) contents = NULL;
+  g_autoptr (GcalEventPopover) self = user_data;
+  g_autoptr (GFile) file = NULL;
+  g_autofree gchar* contents = NULL;
+  GtkFileDialog *file_dialog = GTK_FILE_DIALOG (object);
+  ECalComponent *component = NULL;
+  ICalComponent *icalcomp = NULL;
+  GcalCalendar *calendar = NULL;
+  ECalClient *client = NULL;
 
   file = gtk_file_dialog_save_finish (file_dialog, res, NULL);
   if (!file)
@@ -556,14 +560,15 @@ on_file_dialog_save_cb (GObject *object, GAsyncResult *res, gpointer user_data)
     return;
     }
 
-  contents = g_string_new ("BEGIN:VCALENDAR\nVERSION:2.0\n");
   component = gcal_event_get_component (self->event);
-  g_string_append (contents, e_cal_component_get_as_string (component));
-  g_string_append (contents, "END:VCALENDAR");
+  icalcomp = e_cal_component_get_icalcomponent (component);
+  calendar = gcal_event_get_calendar (self->event);
+  client = gcal_calendar_get_client (calendar);
+  contents = e_cal_client_get_component_as_string (client, icalcomp);
 
   g_file_replace_contents (file,
-                           contents->str,
-                           contents->len,
+                           contents,
+                           strlen (contents),
                            NULL,
                            FALSE,
                            G_FILE_CREATE_REPLACE_DESTINATION,
