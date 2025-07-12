@@ -37,7 +37,7 @@ struct _GcalEditCalendarPage
   AdwSwitchRow       *calendar_visible_row;
   AdwActionRow       *calendar_url_row;
   AdwEntryRow        *name_entry;
-  GtkWidget          *remove_group;
+  GtkWidget          *remove_button_row;
 
   GcalCalendar       *calendar;
 
@@ -202,7 +202,7 @@ setup_calendar (GcalEditCalendarPage *self,
   gtk_editable_set_text (GTK_EDITABLE (self->name_entry), gcal_calendar_get_name (calendar));
   adw_switch_row_set_active (self->calendar_visible_row, gcal_calendar_get_visible (calendar));
 
-  gtk_widget_set_visible (self->remove_group, e_source_get_removable (source));
+  gtk_widget_set_visible (self->remove_button_row, e_source_get_removable (source));
 }
 
 /*
@@ -223,6 +223,90 @@ on_calendar_visibility_changed_cb (AdwSwitchRow         *row,
                                    GcalEditCalendarPage *self)
 {
   gcal_calendar_set_visible (self->calendar, adw_switch_row_get_active (row));
+}
+
+static void
+on_file_dialog_save_cb (GObject      *object,
+                        GAsyncResult *res,
+                        gpointer      user_data)
+{
+  GcalEditCalendarPage* self = user_data;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GFile) file = NULL;
+  g_autoptr (GString) ics_str = NULL;
+  g_autoptr(GSList) events = NULL;
+  g_autoptr(GSList) iter = NULL;
+  ECalClient* client = NULL;
+
+  file = gtk_file_dialog_save_finish (GTK_FILE_DIALOG (object), res, &error);
+  if (error)
+    {
+      if (!g_error_matches (error, GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED))
+        g_warning ("Error saving file: %s", error->message);
+      return;
+    }
+
+  client = gcal_calendar_get_client (self->calendar);
+  e_cal_client_get_object_list_sync (client, "(contains? \"any\" \"\")", &events, NULL, NULL);
+
+  /* Avoid exporting empty calendars */
+  if (!events)
+    {
+      return;
+    }
+
+
+  ics_str = g_string_new ("BEGIN:VCALENDAR\nVERSION:2.0\nMethod:PUBLISH\n");
+  for (iter = events; iter != NULL; iter = iter->next)
+   {
+      gchar *component_str;
+      ICalComponent *component;
+
+      component = iter->data;
+      component_str = i_cal_component_as_ical_string (component);
+      ics_str = g_string_append (ics_str, component_str);
+
+      g_free (component_str);
+    }
+
+  ics_str = g_string_append (ics_str, "END:VCALENDAR");
+
+  g_file_replace_contents (file,
+                           ics_str->str,
+                           ics_str->len,
+                           NULL,
+                           FALSE,
+                           G_FILE_CREATE_REPLACE_DESTINATION,
+                           NULL,
+                           NULL,
+                           NULL);
+}
+
+static void
+on_export_button_row_activated_cb (GtkButton            *button,
+                                   GcalEditCalendarPage *self)
+{
+  g_autofree gchar *filename = NULL;
+  GtkFileDialog *file_dialog = NULL;
+  GtkWindow *window = NULL;
+
+  GCAL_ENTRY;
+
+  window = GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (self)));
+  file_dialog = gtk_file_dialog_new ();
+  filename = g_strconcat (gcal_calendar_get_name (self->calendar), ".ics", NULL);
+
+  gtk_file_dialog_set_title (file_dialog, _("Export Calendar"));
+  gtk_file_dialog_set_initial_name (file_dialog, filename);
+
+  gtk_file_dialog_save (file_dialog,
+                        window,
+                        NULL,
+                        on_file_dialog_save_cb,
+                        self);
+
+
+  GCAL_EXIT;
 }
 
 static void
@@ -394,11 +478,12 @@ gcal_edit_calendar_page_class_init (GcalEditCalendarPageClass *klass)
   gtk_widget_class_bind_template_child (widget_class, GcalEditCalendarPage, calendar_url_row);
   gtk_widget_class_bind_template_child (widget_class, GcalEditCalendarPage, calendar_visible_row);
   gtk_widget_class_bind_template_child (widget_class, GcalEditCalendarPage, name_entry);
-  gtk_widget_class_bind_template_child (widget_class, GcalEditCalendarPage, remove_group);
+  gtk_widget_class_bind_template_child (widget_class, GcalEditCalendarPage, remove_button_row);
 
   gtk_widget_class_bind_template_callback (widget_class, on_calendar_color_changed_cb);
   gtk_widget_class_bind_template_callback (widget_class, on_calendar_visibility_changed_cb);
   gtk_widget_class_bind_template_callback (widget_class, on_remove_button_row_activated_cb);
+  gtk_widget_class_bind_template_callback (widget_class, on_export_button_row_activated_cb);
   gtk_widget_class_bind_template_callback (widget_class, on_settings_button_clicked_cb);
 }
 
