@@ -231,12 +231,13 @@ on_file_dialog_save_cb (GObject      *object,
                         gpointer      user_data)
 {
   GcalEditCalendarPage* self = user_data;
+  g_autofree gchar* ics_str = NULL;
   g_autoptr (GError) error = NULL;
   g_autoptr (GFile) file = NULL;
-  g_autoptr (GString) ics_str = NULL;
   g_autoptr(GSList) events = NULL;
   g_autoptr(GSList) iter = NULL;
   ECalClient* client = NULL;
+  ICalComponent* top_level = NULL;
 
   file = gtk_file_dialog_save_finish (GTK_FILE_DIALOG (object), res, &error);
   if (error)
@@ -247,33 +248,25 @@ on_file_dialog_save_cb (GObject      *object,
     }
 
   client = gcal_calendar_get_client (self->calendar);
-  e_cal_client_get_object_list_sync (client, "(contains? \"any\" \"\")", &events, NULL, NULL);
+  e_cal_client_get_object_list_sync (client, "#t", &events, NULL, NULL);
 
   /* Avoid exporting empty calendars */
   if (!events)
-    {
-      return;
-    }
+    return;
 
 
-  ics_str = g_string_new ("BEGIN:VCALENDAR\nVERSION:2.0\nMethod:PUBLISH\n");
+	top_level = e_cal_util_new_top_level ();
   for (iter = events; iter != NULL; iter = iter->next)
    {
-      gchar *component_str;
-      ICalComponent *component;
-
-      component = iter->data;
-      component_str = i_cal_component_as_ical_string (component);
-      ics_str = g_string_append (ics_str, component_str);
-
-      g_free (component_str);
+      ICalComponent *component = NULL;
+      component = i_cal_component_clone (iter->data);
+      i_cal_component_take_component (top_level, component);
     }
 
-  ics_str = g_string_append (ics_str, "END:VCALENDAR");
-
+	ics_str =i_cal_component_as_ical_string (top_level);
   g_file_replace_contents (file,
-                           ics_str->str,
-                           ics_str->len,
+                           ics_str,
+                           strlen (ics_str),
                            NULL,
                            FALSE,
                            G_FILE_CREATE_REPLACE_DESTINATION,
