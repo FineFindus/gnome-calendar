@@ -263,7 +263,8 @@ on_file_dialog_save_cb (GObject      *object,
       i_cal_component_take_component (top_level, component);
     }
 
-	ics_str =i_cal_component_as_ical_string (top_level);
+  i_cal_component_strip_errors (top_level);
+  ics_str = i_cal_component_as_ical_string (top_level);
   g_file_replace_contents (file,
                            ics_str,
                            strlen (ics_str),
