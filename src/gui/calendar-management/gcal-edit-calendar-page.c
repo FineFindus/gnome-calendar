@@ -225,6 +225,49 @@ on_calendar_visibility_changed_cb (AdwSwitchRow         *row,
   gcal_calendar_set_visible (self->calendar, adw_switch_row_get_active (row));
 }
 
+typedef struct {
+	GHashTable *zones;
+	ECalClient *client;
+} TimeZoneData;
+
+static void
+insert_tz_comps (ICalParameter *param,
+                 gpointer cb_data)
+{
+	const gchar *tzid;
+	TimeZoneData *tdata = cb_data;
+	ICalTimezone *zone = NULL;
+	ICalComponent *tzcomp;
+	GError *error = NULL;
+
+	tzid = i_cal_parameter_get_tzid (param);
+
+	if (g_hash_table_lookup (tdata->zones, tzid))
+		return;
+
+	if (!e_cal_client_get_timezone_sync (tdata->client, tzid, &zone, NULL, &error))
+		zone = NULL;
+
+	if (error != NULL) {
+		g_warning (
+			"Could not get the timezone information for %s: %s",
+			tzid, error->message);
+		g_error_free (error);
+		return;
+	}
+
+	tzcomp = i_cal_component_clone (i_cal_timezone_get_component (zone));
+	g_hash_table_insert (tdata->zones, (gpointer) tzid, (gpointer) tzcomp);
+}
+
+static void
+append_tz_to_comp (gpointer key,
+	                 gpointer value,
+                   ICalComponent *toplevel)
+{
+	i_cal_component_add_component (toplevel, (ICalComponent *) value);
+}
+
 static void
 on_file_dialog_save_cb (GObject      *object,
                         GAsyncResult *res,
@@ -238,6 +281,7 @@ on_file_dialog_save_cb (GObject      *object,
   g_autoptr(GSList) iter = NULL;
   ECalClient* client = NULL;
   ICalComponent* top_level = NULL;
+	TimeZoneData tz_data;
 
   file = gtk_file_dialog_save_finish (GTK_FILE_DIALOG (object), res, &error);
   if (error)
@@ -256,12 +300,20 @@ on_file_dialog_save_cb (GObject      *object,
 
 
 	top_level = e_cal_util_new_top_level ();
+  tz_data.zones = g_hash_table_new (g_str_hash, g_str_equal);
+  tz_data.client = client;
+
   for (iter = events; iter != NULL; iter = iter->next)
    {
       ICalComponent *component = NULL;
       component = i_cal_component_clone (iter->data);
+      i_cal_component_foreach_tzid (component, insert_tz_comps, &tz_data);
       i_cal_component_take_component (top_level, component);
     }
+
+  g_hash_table_foreach (tz_data.zones, (GHFunc) append_tz_to_comp, top_level);
+  g_hash_table_destroy (tz_data.zones);
+  tz_data.zones = NULL;
 
   i_cal_component_strip_errors (top_level);
   ics_str = i_cal_component_as_ical_string (top_level);
